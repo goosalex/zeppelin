@@ -25,8 +25,16 @@ import org.sonatype.aether.RepositorySystem;
 import org.sonatype.aether.RepositorySystemSession;
 import org.sonatype.aether.repository.LocalRepository;
 import org.sonatype.aether.repository.RemoteRepository;
+import org.sonatype.aether.repository.Proxy;
+import org.sonatype.aether.repository.Authentication;
 
+import java.net.InetSocketAddress;
+import java.net.ProxySelector;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.Paths;
+
+import static java.net.Proxy.Type.DIRECT;
 
 /**
  * Manage mvn repository.
@@ -80,7 +88,40 @@ public class Booter {
       mvnRepo = "http://repo1.maven.org/maven2/";
     }
 
-    return new RemoteRepository("central", "default", mvnRepo);
+    RemoteRepository defaultRepo = new RemoteRepository("central", "default", mvnRepo);
+    java.net.Proxy defaultProxy = null;
+    try {
+      URI mvnRepoURI = new URI(mvnRepo);
+      Authentication a = null;
+      defaultProxy = ProxySelector.getDefault().select(mvnRepoURI).get(0);
+
+      switch (defaultProxy.type()) {
+        case HTTP:
+          if (!System.getProperty("http.proxyUser", "").isEmpty()) {
+            a = new Authentication(
+                System.getProperty("http.proxyUser", ""),
+                System.getProperty("http.proxyPassword", "")
+            );
+          }
+          defaultRepo.setProxy(
+              new Proxy(mvnRepoURI.getScheme(),
+                  ((InetSocketAddress) defaultProxy.address()).getHostName(),
+                  ((InetSocketAddress) defaultProxy.address()).getPort(),
+                  a)
+          );
+          return defaultRepo;
+        case DIRECT:
+          return defaultRepo;
+
+      }
+
+    } catch (URISyntaxException e) {
+      logger.warn("Error finding proxy for default RemoteRepository %s: %s",
+          mvnRepo, e.getMessage());
+    }
+
+
+    return defaultRepo;
   }
 
   public static RemoteRepository newLocalRepository() {
